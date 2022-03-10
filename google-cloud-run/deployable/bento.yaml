@@ -1,0 +1,9 @@
+service: service:svc
+name: testservice
+version: fzxokwu6d2mreulw
+bentoml_version: 1.0.0a6.post1+g5b9e9a2c
+creation_time: 2022-03-07 13:55:00.704236+00:00
+labels:
+  owner: jjmachan
+  stage: demo
+models: []
