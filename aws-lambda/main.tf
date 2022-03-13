@@ -17,6 +17,10 @@ provider "aws" {
 # Input variable definitions
 ################################################################################
 
+variable "deployment_name" {
+  type = string
+}
+
 variable "aws_region" {
   description = "AWS region for all resources."
 
@@ -41,7 +45,7 @@ variable "memory_size" {
 ################################################################################
 
 data "aws_ecr_repository" "service" {
-  name = "testservice"
+  name = var.deployment_name
 }
 
 data "aws_ecr_image" "service_image" {
@@ -49,8 +53,8 @@ data "aws_ecr_image" "service_image" {
   image_tag       = "latest"
 }
 
-resource "aws_lambda_function" "hello_world" {
-  function_name = "HelloWorld"
+resource "aws_lambda_function" "fn" {
+  function_name = "${var.deployment_name}-function"
   role          = aws_iam_role.lambda_exec.arn
 
   timeout      = var.timeout
@@ -72,14 +76,14 @@ resource "aws_lambda_function" "hello_world" {
   }
 }
 
-resource "aws_cloudwatch_log_group" "hello_world" {
-  name = "/aws/lambda/${aws_lambda_function.hello_world.function_name}"
+resource "aws_cloudwatch_log_group" "lg" {
+  name = "/aws/lambda/${aws_lambda_function.fn.function_name}"
 
   retention_in_days = 30
 }
 
 resource "aws_iam_role" "lambda_exec" {
-  name = "serverless_lambda1"
+  name = "${var.deployment_name}-iam"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -101,7 +105,7 @@ resource "aws_iam_role_policy_attachment" "lambda_policy" {
 }
 
 resource "aws_apigatewayv2_api" "lambda" {
-  name          = "serverless_lambda_gw"
+  name          = "${var.deployment_name}-gw"
   protocol_type = "HTTP"
 }
 
@@ -130,23 +134,30 @@ resource "aws_apigatewayv2_stage" "lambda" {
   }
 }
 
-resource "aws_apigatewayv2_integration" "hello_world" {
+resource "aws_apigatewayv2_integration" "lambda" {
   api_id = aws_apigatewayv2_api.lambda.id
 
-  integration_uri    = aws_lambda_function.hello_world.invoke_arn
+  integration_uri    = aws_lambda_function.fn.invoke_arn
   integration_type   = "AWS_PROXY"
   integration_method = "POST"
 }
 
-resource "aws_apigatewayv2_route" "hello_world" {
+resource "aws_apigatewayv2_route" "root" {
+  api_id = aws_apigatewayv2_api.lambda.id
+
+  route_key = "ANY /"
+  target    = "integrations/${aws_apigatewayv2_integration.lambda.id}"
+}
+
+resource "aws_apigatewayv2_route" "services" {
   api_id = aws_apigatewayv2_api.lambda.id
 
   route_key = "POST /{proxy+}"
-  target    = "integrations/${aws_apigatewayv2_integration.hello_world.id}"
+  target    = "integrations/${aws_apigatewayv2_integration.lambda.id}"
 }
 
 resource "aws_cloudwatch_log_group" "api_gw" {
-  name = "/aws/api_gw/${aws_apigatewayv2_api.lambda.name}1"
+  name = "/aws/api_gw/${aws_apigatewayv2_api.lambda.name}"
 
   retention_in_days = 30
 }
@@ -154,7 +165,7 @@ resource "aws_cloudwatch_log_group" "api_gw" {
 resource "aws_lambda_permission" "api_gw" {
   statement_id  = "AllowExecutionFromAPIGateway"
   action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.hello_world.function_name
+  function_name = aws_lambda_function.fn.function_name
   principal     = "apigateway.amazonaws.com"
 
   source_arn = "${aws_apigatewayv2_api.lambda.execution_arn}/*/*"
@@ -167,7 +178,7 @@ resource "aws_lambda_permission" "api_gw" {
 output "function_name" {
   description = "Name of the Lambda function."
 
-  value = aws_lambda_function.hello_world.function_name
+  value = aws_lambda_function.fn.function_name
 }
 
 output "base_url" {
