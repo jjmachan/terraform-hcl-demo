@@ -1,0 +1,14 @@
+[
+    {
+        "ParameterKey": "deploymentName",
+        "ParameterValue": "testservice"
+    },
+    {
+        "ParameterKey": "repositoryName",
+        "ParameterValue": "testservice"
+    },
+    {
+        "ParameterKey": "repositoryTag",
+        "ParameterValue": "latest"
+    }
+]

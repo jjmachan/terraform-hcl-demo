@@ -1,4 +1,17 @@
 AWSTemplateFormatVersion: '2010-09-09'
+Parameters:
+  deploymentName:
+    Type: String
+  repositoryName:
+    Type: String
+  repositoryTag:
+    Type: String
+  memorySize:
+    Type: Number
+    Default: 514
+  timeout:
+    Type: Number
+    Default: 20
 Globals:
   Api:
     Auth:
@@ -9,106 +22,29 @@ Globals:
     - '*~1*'
     Cors: '''*'''
   Function:
-    MemorySize: 512
-    Timeout: 10
+    MemorySize: !Ref memorySize
+    Timeout: !Ref timeout
 Resources:
-  file:
-    Properties:
-      Environment:
-        Variables:
-          BENTOML_API_NAME: file
-          BENTOML_BENTO_SERVICE_NAME: testservice
-      Events:
-        Api:
-          Properties:
-            Method: post
-            Path: /file
-          Type: Api
-      FunctionName: lambdadeployment-file
-      ImageConfig:
-        Command:
-        - app.file
-      ImageUri: 213386773652.dkr.ecr.ap-south-1.amazonaws.com/lambdadeployment-repo:testservice-fzxokwu6d2mreulw
-      PackageType: Image
-    Type: AWS::Serverless::Function
-  json:
-    Properties:
-      Environment:
-        Variables:
-          BENTOML_API_NAME: json
-          BENTOML_BENTO_SERVICE_NAME: testservice
-      Events:
-        Api:
-          Properties:
-            Method: post
-            Path: /json
-          Type: Api
-      FunctionName: lambdadeployment-json
-      ImageConfig:
-        Command:
-        - app.json
-      ImageUri: 213386773652.dkr.ecr.ap-south-1.amazonaws.com/lambdadeployment-repo:testservice-fzxokwu6d2mreulw
-      PackageType: Image
-    Type: AWS::Serverless::Function
-  multipart:
-    Properties:
-      Environment:
-        Variables:
-          BENTOML_API_NAME: multipart
-          BENTOML_BENTO_SERVICE_NAME: testservice
-      Events:
-        Api:
-          Properties:
-            Method: post
-            Path: /multipart
-          Type: Api
-      FunctionName: lambdadeployment-multipart
-      ImageConfig:
-        Command:
-        - app.multipart
-      ImageUri: 213386773652.dkr.ecr.ap-south-1.amazonaws.com/lambdadeployment-repo:testservice-fzxokwu6d2mreulw
-      PackageType: Image
-    Type: AWS::Serverless::Function
-  ndarray:
-    Properties:
-      Environment:
-        Variables:
-          BENTOML_API_NAME: ndarray
-          BENTOML_BENTO_SERVICE_NAME: testservice
-      Events:
-        Api:
-          Properties:
-            Method: post
-            Path: /ndarray
-          Type: Api
-      FunctionName: lambdadeployment-ndarray
-      ImageConfig:
-        Command:
-        - app.ndarray
-      ImageUri: 213386773652.dkr.ecr.ap-south-1.amazonaws.com/lambdadeployment-repo:testservice-fzxokwu6d2mreulw
-      PackageType: Image
-    Type: AWS::Serverless::Function
   pandas:
     Properties:
       Environment:
         Variables:
-          BENTOML_API_NAME: pandas
-          BENTOML_BENTO_SERVICE_NAME: testservice
+          API_GATEWAY_STAGE: ''
       Events:
         Api:
           Properties:
-            Method: post
-            Path: /pandas
-          Type: Api
-      FunctionName: lambdadeployment-pandas
+            Method: any
+            Path: /{proxy+}
+          Type: HttpApi
+      FunctionName: !Sub ${deploymentName}-fn
       ImageConfig:
         Command:
-        - app.pandas
-      ImageUri: 213386773652.dkr.ecr.ap-south-1.amazonaws.com/lambdadeployment-repo:testservice-fzxokwu6d2mreulw
+        - app.mangum_app
+      ImageUri: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${repositoryName}:${repositoryTag}'
       PackageType: Image
     Type: AWS::Serverless::Function
 Transform: AWS::Serverless-2016-10-31
 Outputs:
   EndpointUrl:
-    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod"
+    Value: !Sub "https://${ServerlessHttpApi}.execute-api.${AWS::Region}.amazonaws.com"
     Description: URL for endpoint
