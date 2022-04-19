@@ -1,0 +1,309 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "An API Gateway to invoke Sagemaker Endpoint",
+  "Resources": {
+    "SagemakerModel": {
+      "Type": "AWS::SageMaker::Model",
+      "Properties": {
+        "ModelName": "testservice-model-fzxokwu6d2mreulw",
+        "ExecutionRoleArn": {
+          "Fn::GetAtt": [
+            "ExecutionRole",
+            "Arn"
+          ]
+        },
+        "PrimaryContainer": {
+          "Image": "213386773652.dkr.ecr.ap-south-1.amazonaws.com/testservice-repo:testservice-fzxokwu6d2mreulw",
+          "ImageConfig": {
+            "RepositoryAccessMode": "Platform"
+          },
+          "Environment": {
+            "BENTOML_GUNICORN_TIMEOUT": 60,
+            "BENTOML_GUNICORN_NUM_OF_WORKERS": 3
+          }
+        }
+      }
+    },
+    "ExecutionRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "ManagedPolicyArns": [
+          "arn:aws:iam::aws:policy/AmazonSageMakerFullAccess"
+        ],
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": [
+                  "sagemaker.amazonaws.com"
+                ]
+              },
+              "Action": [
+                "sts:AssumeRole"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    "SagemakerEndpointConfig": {
+      "Type": "AWS::SageMaker::EndpointConfig",
+      "DependsOn": "SagemakerModel",
+      "Properties": {
+        "ProductionVariants": [
+          {
+            "InitialInstanceCount": 1,
+            "InitialVariantWeight": 1,
+            "InstanceType": "ml.t2.medium",
+            "ModelName": {
+              "Fn::GetAtt": [
+                "SagemakerModel",
+                "ModelName"
+              ]
+            },
+            "VariantName": "default"
+          }
+        ]
+      }
+    },
+    "SagemakerEndpoint": {
+      "Type": "AWS::SageMaker::Endpoint",
+      "DependsOn": "SagemakerEndpointConfig",
+      "Properties": {
+        "EndpointConfigName": {
+          "Fn::GetAtt": [
+            "SagemakerEndpointConfig",
+            "EndpointConfigName"
+          ]
+        },
+        "EndpointName": "testservice-endpoint",
+        "RetainAllVariantProperties": false
+      }
+    },
+    "HttpApi": {
+      "Type": "AWS::ApiGatewayV2::Api",
+      "Properties": {
+        "Name": "testservice-api",
+        "Description": "API Gateway proxy to lambda function that exposes sagemaker endpoint",
+        "ProtocolType": "HTTP"
+      }
+    },
+    "HttpApiIntegration": {
+      "Type": "AWS::ApiGatewayV2::Integration",
+      "DependsOn": [
+        "Lambdafn"
+      ],
+      "Properties": {
+        "Description": "Lambda Integration",
+        "IntegrationMethod": "POST",
+        "IntegrationUri": {
+          "Fn::Sub": "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${Lambdafn.Arn}/invocations"
+        },
+        "PayloadFormatVersion": "2.0",
+        "ApiId": {
+          "Ref": "HttpApi"
+        },
+        "IntegrationType": "AWS_PROXY"
+      }
+    },
+    "DefaultStage": {
+      "Type": "AWS::ApiGatewayV2::Stage",
+      "Properties": {
+        "StageName": "$default",
+        "AutoDeploy": true,
+        "ApiId": {
+          "Ref": "HttpApi"
+        }
+      }
+    },
+    "LambdaExecutionRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "ManagedPolicyArns": [
+          "arn:aws:iam::aws:policy/AmazonSageMakerFullAccess",
+          "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+        ],
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": [
+                  "lambda.amazonaws.com"
+                ]
+              },
+              "Action": [
+                "sts:AssumeRole"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    "Lambdafn": {
+      "Type": "AWS::Lambda::Function",
+      "Properties": {
+        "Runtime": "python3.9",
+        "Description": "Parse request and invoke Sagmeker Endpoint",
+        "Timeout": 60,
+        "Role": {
+          "Fn::Sub": "${LambdaExecutionRole.Arn}"
+        },
+        "Handler": "index.lambda_handler",
+        "Code": {
+          "ZipFile": "\nimport json\nimport boto3\nfrom base64 import b64decode\n\ndef safeget(dct, *keys, default=None):\n    for key in keys:\n        try:\n            dct = dct[key]\n        except KeyError:\n            return default\n    return dct\n\ndef lambda_handler(event, context):\n    runtime = boto3.client('runtime.sagemaker')\n\n    try:\n        sagemaker_response = runtime.invoke_endpoint(\n            EndpointName=\"testservice-endpoint\",\n            ContentType=safeget(event, 'headers', 'content-type', default='application/json'),\n            CustomAttributes=safeget(event, 'rawPath', default='')[1:],\n            Body=b64decode(event.get('body')) if event.get('isBase64Encoded') else event.get('body')\n        )\n    except Exception as e:\n        return {\n            'statusCode': e.response.get('OriginalStatusCode'),\n            'body': e.response.get('Error')['Message']\n        }\n    else:\n        return {\n            'statusCode': safeget(sagemaker_response, 'ResponseMetadata', 'HTTPStatusCode'),\n            'body': sagemaker_response.get('Body').read()\n        }\n"
+        },
+        "TracingConfig": {
+          "Mode": "Active"
+        }
+      }
+    },
+    "ApigatewayPermission": {
+      "Type": "AWS::Lambda::Permission",
+      "Properties": {
+        "FunctionName": {
+          "Fn::GetAtt": [
+            "Lambdafn",
+            "Arn"
+          ]
+        },
+        "Action": "lambda:InvokeFunction",
+        "Principal": "apigateway.amazonaws.com",
+        "SourceArn": {
+          "Fn::Sub": "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpApi}/*/*/*"
+        }
+      }
+    },
+    "jsonroute": {
+      "Type": "AWS::ApiGatewayV2::Route",
+      "DependsOn": [
+        "HttpApiIntegration",
+        "Lambdafn"
+      ],
+      "Properties": {
+        "ApiId": {
+          "Ref": "HttpApi"
+        },
+        "RouteKey": "POST /json",
+        "Target": {
+          "Fn::Join": [
+            "/",
+            [
+              "integrations",
+              {
+                "Ref": "HttpApiIntegration"
+              }
+            ]
+          ]
+        }
+      }
+    },
+    "ndarrayroute": {
+      "Type": "AWS::ApiGatewayV2::Route",
+      "DependsOn": [
+        "HttpApiIntegration",
+        "Lambdafn"
+      ],
+      "Properties": {
+        "ApiId": {
+          "Ref": "HttpApi"
+        },
+        "RouteKey": "POST /ndarray",
+        "Target": {
+          "Fn::Join": [
+            "/",
+            [
+              "integrations",
+              {
+                "Ref": "HttpApiIntegration"
+              }
+            ]
+          ]
+        }
+      }
+    },
+    "pandasroute": {
+      "Type": "AWS::ApiGatewayV2::Route",
+      "DependsOn": [
+        "HttpApiIntegration",
+        "Lambdafn"
+      ],
+      "Properties": {
+        "ApiId": {
+          "Ref": "HttpApi"
+        },
+        "RouteKey": "POST /pandas",
+        "Target": {
+          "Fn::Join": [
+            "/",
+            [
+              "integrations",
+              {
+                "Ref": "HttpApiIntegration"
+              }
+            ]
+          ]
+        }
+      }
+    },
+    "fileroute": {
+      "Type": "AWS::ApiGatewayV2::Route",
+      "DependsOn": [
+        "HttpApiIntegration",
+        "Lambdafn"
+      ],
+      "Properties": {
+        "ApiId": {
+          "Ref": "HttpApi"
+        },
+        "RouteKey": "POST /file",
+        "Target": {
+          "Fn::Join": [
+            "/",
+            [
+              "integrations",
+              {
+                "Ref": "HttpApiIntegration"
+              }
+            ]
+          ]
+        }
+      }
+    },
+    "multipartroute": {
+      "Type": "AWS::ApiGatewayV2::Route",
+      "DependsOn": [
+        "HttpApiIntegration",
+        "Lambdafn"
+      ],
+      "Properties": {
+        "ApiId": {
+          "Ref": "HttpApi"
+        },
+        "RouteKey": "POST /multipart",
+        "Target": {
+          "Fn::Join": [
+            "/",
+            [
+              "integrations",
+              {
+                "Ref": "HttpApiIntegration"
+              }
+            ]
+          ]
+        }
+      }
+    }
+  },
+  "Outputs": {
+    "EndpointURL": {
+      "Value": {
+        "Fn::Sub": "${HttpApi.ApiEndpoint}"
+      },
+      "Description": "The endpoint for Sagemaker inference"
+    }
+  }
+}
