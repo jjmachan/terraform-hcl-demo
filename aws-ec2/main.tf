@@ -71,24 +71,28 @@ resource "aws_iam_role" "ec2_role" {
   }
 }
 
-resource "aws_iam_instance_profile" "instance_profile" {
+resource "aws_iam_instance_profile" "ip" {
   name = "${var.deployment_name}-instance-profile"
   role = aws_iam_role.ec2_role.name
 }
 
 resource "aws_instance" "app_server" {
-  ami                         = var.ami
-  instance_type               = var.instance_type
-  user_data                   = file("startup_script.sh")
-  user_data_replace_on_change = true
-  security_groups             = ["bentoml"]
-  iam_instance_profile  = aws_iam_instance_profile.instance_profile.name
+  launch_template {
+    id = aws_launch_template.lt.id
+  }
 }
 
 resource "aws_launch_template" "lt" {
-  name          = "${var.deployment_name}-lt"
-  image_id      = var.ami
-  instance_type = var.instance_type
+  name                   = "${var.deployment_name}-lt"
+  image_id               = var.ami
+  instance_type          = var.instance_type
+  update_default_version = true
+  user_data              = filebase64("startup_script.sh")
+  security_group_names   = ["bentoml"]
+
+  iam_instance_profile {
+    arn = aws_iam_instance_profile.ip.arn
+  }
 }
 
 ################################################################################
