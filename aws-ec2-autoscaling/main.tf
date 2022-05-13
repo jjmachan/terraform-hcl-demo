@@ -76,26 +76,9 @@ resource "aws_iam_instance_profile" "ip" {
   role = aws_iam_role.ec2_role.name
 }
 
-
-resource "aws_security_group" "allow_bentoml" {
-  name        = "${var.deployment_name}-bentoml-sg"
-  description = "SG for bentoml server"
-
-  ingress {
-    description      = "HTTP for bentoml"
-    from_port        = 80
-    to_port          = 80
-    protocol         = "tcp"
-    cidr_blocks      = ["0.0.0.0/0"]
-    ipv6_cidr_blocks = ["::/0"]
-  }
-
-  egress {
-    from_port        = 0
-    to_port          = 0
-    protocol         = "-1"
-    cidr_blocks      = ["0.0.0.0/0"]
-    ipv6_cidr_blocks = ["::/0"]
+resource "aws_instance" "app_server" {
+  launch_template {
+    id = aws_launch_template.lt.id
   }
 }
 
@@ -105,16 +88,10 @@ resource "aws_launch_template" "lt" {
   instance_type          = var.instance_type
   update_default_version = true
   user_data              = filebase64("startup_script.sh")
-  security_group_names   = [aws_security_group.allow_bentoml.name]
+  security_group_names   = ["bentoml"]
 
   iam_instance_profile {
     arn = aws_iam_instance_profile.ip.arn
-  }
-}
-
-resource "aws_instance" "app_server" {
-  launch_template {
-    id = aws_launch_template.lt.id
   }
 }
 
