@@ -1,0 +1,9 @@
+api_version: v1
+name: gcp-test
+operator:
+  name: google-compute-engine
+template: terraform
+spec:
+  project_id: bentoml-316710
+  zone: us-central1-a
+  machine_type: n1-standard-1
